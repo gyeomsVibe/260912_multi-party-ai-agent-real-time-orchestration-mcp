@@ -1,0 +1,15 @@
+# Vibe Clinic
+.vibe-clinic/config.json
+.vibe-clinic/treatment-ledger.json
+*.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.db
+central_hub/vault/
+.vault/
+scratch/
+# IDE & Local config
+.gemini/
