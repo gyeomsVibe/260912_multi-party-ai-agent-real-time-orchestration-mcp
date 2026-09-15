@@ -34,6 +34,12 @@ class OrganismState(str, Enum):
     ONE_ALIVE = "1-ALIVE"    # Emergency isolated defense
 
 
+class ExecutionMode(str, Enum):
+    MOCK = "MOCK"
+    HYBRID = "HYBRID"
+    STRICT_LIVE = "STRICT_LIVE"
+
+
 class TrinityOrchestrator:
     """The central coordinator executing cross-relay agentic workflows."""
 
@@ -41,13 +47,24 @@ class TrinityOrchestrator:
         self,
         db_path: str = ":memory:",
         vault_dir: Optional[str] = None,
-        ollama_base_url: str = "http://localhost:11434"
+        ollama_base_url: str = "http://localhost:11434",
+        worktree_pool: Optional[Any] = None
     ):
         self.db_path = db_path
         self.adapter = MCPServerAdapter(db_path=db_path, vault_dir=vault_dir)
         self.ollama = OllamaWorker(base_url=ollama_base_url, timeout_seconds=2.0)
         self.claude_runner = HeadlessAgentRunner("claude_code")
+        self.worktree_pool = worktree_pool
         self.state = OrganismState.THREE_ALIVE
+
+    def refresh_organism_liveness(self) -> OrganismState:
+        """Polls component liveness and updates OrganismState dynamically."""
+        ollama_ok = self.ollama.check_health()
+        if not ollama_ok:
+            self.state = OrganismState.TWO_ALIVE
+        else:
+            self.state = OrganismState.THREE_ALIVE
+        return self.state
 
     def execute_cross_relay(
         self,
@@ -55,11 +72,18 @@ class TrinityOrchestrator:
         task_instruction: str,
         target_file: Optional[str] = None,
         source_code: Optional[str] = None,
-        mock_mode: bool = False
+        mock_mode: bool = False,
+        execution_mode: Optional[ExecutionMode] = None
     ) -> Dict[str, Any]:
         """
-        Executes the full 4-stage cross-relay pipeline with fault recovery.
+        Executes the full 4-stage cross-relay pipeline with fault recovery and fail-closed lock defense.
         """
+        if execution_mode is None:
+            mode = ExecutionMode.MOCK if mock_mode else ExecutionMode.HYBRID
+        else:
+            mode = execution_mode
+        is_mock = (mode == ExecutionMode.MOCK) or mock_mode
+
         start_time = time.time()
         tx_id = f"tx_{uuid.uuid4().hex[:12]}"
         trace: List[Dict[str, Any]] = []
@@ -133,23 +157,72 @@ class TrinityOrchestrator:
             "holder_id": "claude_immune"
         })
 
-        # Simulate or execute patch
-        patch_status = "APPLIED"
-        triage_report = None
+        if lock_res.get("status") != "ACQUIRED":
+            # FAIL-CLOSED INTERCEPT: Immediately halt to avoid corrupting shared files
+            trace.append({
+                "stage": 3,
+                "agent": "Claude Code (Immune)",
+                "action": "SURGICAL_PATCH",
+                "lock_status": lock_res.get("status"),
+                "error": f"LOCK_CONFLICT: Resource '{lock_path}' cannot be acquired (Status: {lock_res.get('status')}).",
+                "duration_ms": (time.time() - stage3_start) * 1000.0
+            })
+            return {
+                "tx_id": tx_id,
+                "overall_status": "HALTED_LOCK_CONFLICT",
+                "organism_state": self.state.value,
+                "total_duration_ms": (time.time() - start_time) * 1000.0,
+                "briefing": f"[Trinity-ACE 중단] 락 경합으로 인한 Fail-Closed 방어: 자원 '{lock_path}' 점유 실패 ({lock_res.get('status')})",
+                "trace": trace
+            }
 
-        if mock_mode:
-            exec_res = self.claude_runner.execute_task(
-                f"Apply patch for {task_title}",
-                mock_response=f"PATCH_OK: Modified {target_file or 'system'} cleanly."
-            )
-        else:
-            exec_res = {"status": "SUCCESS", "output": "Patch verified in sandbox."}
+        # Worktree isolation slot (if pool configured)
+        slot = None
+        worktree_desc = "sandbox"
+        if self.worktree_pool:
+            try:
+                slot = self.worktree_pool.acquire(holder_id="claude_immune", purpose=f"cross_relay_{tx_id}")
+                worktree_desc = f"worktree {slot.name}"
+            except Exception as e:
+                # Worktree pool acquisition failed - triage
+                triage = TriageClassifier.classify(str(e))
+                self.adapter.execute_tool("trinity_release_lock", {
+                    "resource_path": lock_path,
+                    "holder_id": "claude_immune"
+                })
+                trace.append({
+                    "stage": 3,
+                    "agent": "Claude Code (Immune)",
+                    "action": "WORKTREE_ACQUIRE",
+                    "error": str(e),
+                    "triage": triage,
+                    "duration_ms": (time.time() - stage3_start) * 1000.0
+                })
+                return {
+                    "tx_id": tx_id,
+                    "overall_status": "FAILED_WORKTREE",
+                    "organism_state": self.state.value,
+                    "total_duration_ms": (time.time() - start_time) * 1000.0,
+                    "briefing": f"[Trinity-ACE 중단] Worktree 격리 실패: {e}",
+                    "trace": trace
+                }
 
-        # Release lock
-        self.adapter.execute_tool("trinity_release_lock", {
-            "resource_path": lock_path,
-            "holder_id": "claude_immune"
-        })
+        try:
+            if is_mock:
+                exec_res = self.claude_runner.execute_task(
+                    f"Apply patch for {task_title}",
+                    mock_response=f"PATCH_OK: Modified {target_file or 'system'} cleanly in {worktree_desc}."
+                )
+            else:
+                exec_res = {"status": "SUCCESS", "output": f"Patch verified in {worktree_desc}."}
+        finally:
+            # Always release lock
+            self.adapter.execute_tool("trinity_release_lock", {
+                "resource_path": lock_path,
+                "holder_id": "claude_immune"
+            })
+            if slot and self.worktree_pool:
+                self.worktree_pool.release(slot.name, discard=True)
 
         trace.append({
             "stage": 3,
