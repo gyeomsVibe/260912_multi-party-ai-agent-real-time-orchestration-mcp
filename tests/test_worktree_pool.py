@@ -49,7 +49,7 @@ class PoolTestBase(unittest.TestCase):
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-q", "-m", "init")
         self.pool_root = os.path.join(self.tmp, "pool")
-        self.pool = WorktreePool(self.repo, self.pool_root, ["claude_code", "antigravity"])
+        self.pool = WorktreePool(self.repo, self.pool_root, ["worker_code", "antigravity"])
         self.assertEqual(self.pool.initialize()["status"], "OK")
 
     def tearDown(self):
@@ -61,13 +61,13 @@ class PoolTestBase(unittest.TestCase):
 class TestInitialization(PoolTestBase):
     def test_slots_are_detached_worktrees_without_branch_assumption(self):
         listing = git(self.repo, "worktree", "list")
-        self.assertIn("claude_code", listing)
+        self.assertIn("worker_code", listing)
         self.assertIn("(detached HEAD)", listing)
 
     def test_initialize_is_idempotent(self):
         res = self.pool.initialize()
         self.assertEqual(res["status"], "OK")
-        self.assertEqual(sorted(res["reused"]), ["antigravity", "claude_code"])
+        self.assertEqual(sorted(res["reused"]), ["antigravity", "worker_code"])
         self.assertEqual(res["created"], [])
 
     def test_repository_without_commits_is_reported_not_crashed(self):
@@ -100,7 +100,7 @@ class TestSafetyGuards(unittest.TestCase):
 
 class TestAcquireRelease(PoolTestBase):
     def test_distinct_slots_and_exhaustion(self):
-        a = self.pool.acquire("claude")
+        a = self.pool.acquire("worker")
         b = self.pool.acquire("antigravity")
         self.assertEqual(a["status"], "ACQUIRED")
         self.assertEqual(b["status"], "ACQUIRED")
@@ -108,10 +108,10 @@ class TestAcquireRelease(PoolTestBase):
         self.assertEqual(self.pool.acquire("codex")["status"], "NO_FREE_SLOT")
 
     def test_dirty_release_is_refused_to_protect_work(self):
-        a = self.pool.acquire("claude")
+        a = self.pool.acquire("worker")
         with open(os.path.join(a["path"], "app.py"), "w", encoding="utf-8") as f:
             f.write("VALUE = 2\n")
-        res = self.pool.release(a["slot"], "claude")
+        res = self.pool.release(a["slot"], "worker")
         self.assertEqual(res["status"], "DIRTY")
         self.assertIn("app.py", res["changed_files"])
         # Work must still be there
@@ -119,7 +119,7 @@ class TestAcquireRelease(PoolTestBase):
             self.assertEqual(f.read(), "VALUE = 2\n")
 
     def test_export_then_discard_recycles_to_pristine(self):
-        a = self.pool.acquire("claude")
+        a = self.pool.acquire("worker")
         path = a["path"]
         with open(os.path.join(path, "app.py"), "w", encoding="utf-8") as f:
             f.write("VALUE = 2\n")
@@ -128,12 +128,12 @@ class TestAcquireRelease(PoolTestBase):
         with open(os.path.join(path, "cache.db"), "w", encoding="utf-8") as f:
             f.write("ignored state\n")
 
-        export = self.pool.export_changes(a["slot"], "claude")
+        export = self.pool.export_changes(a["slot"], "worker")
         self.assertEqual(export["status"], "OK")
         self.assertIn("VALUE = 2", export["patch"])
         self.assertIn("new_module.py", export["patch"])
 
-        self.assertEqual(self.pool.release(a["slot"], "claude", discard=True)["status"], "RELEASED")
+        self.assertEqual(self.pool.release(a["slot"], "worker", discard=True)["status"], "RELEASED")
 
         b = self.pool.acquire("codex")
         self.assertEqual(b["slot"], a["slot"])
@@ -144,17 +144,17 @@ class TestAcquireRelease(PoolTestBase):
                          "ignored files must not leak between tasks")
 
     def test_exported_patch_applies_to_main_repo(self):
-        a = self.pool.acquire("claude")
+        a = self.pool.acquire("worker")
         with open(os.path.join(a["path"], "app.py"), "w", encoding="utf-8") as f:
             f.write("VALUE = 42\n")
-        patch = self.pool.export_changes(a["slot"], "claude")["patch"]
+        patch = self.pool.export_changes(a["slot"], "worker")["patch"]
         patch_file = os.path.join(self.tmp, "w.patch")
         with open(patch_file, "w", encoding="utf-8", newline="\n") as f:
             f.write(patch)
         git(self.repo, "apply", "--check", patch_file)
 
     def test_wrong_agent_cannot_release_or_export(self):
-        a = self.pool.acquire("claude")
+        a = self.pool.acquire("worker")
         self.assertEqual(self.pool.release(a["slot"], "intruder")["status"], "FORBIDDEN")
         self.assertEqual(self.pool.export_changes(a["slot"], "intruder")["status"], "FORBIDDEN")
 
@@ -163,39 +163,39 @@ class TestAcquireRelease(PoolTestBase):
             f.write("VALUE = 3\n")
         git(self.repo, "commit", "-q", "-am", "bump")
         new_commit = git(self.repo, "rev-parse", "HEAD")
-        a = self.pool.acquire("claude", ref=new_commit)
+        a = self.pool.acquire("worker", ref=new_commit)
         self.assertEqual(a["commit"], new_commit)
         with open(os.path.join(a["path"], "app.py"), encoding="utf-8") as f:
             self.assertEqual(f.read(), "VALUE = 3\n")
 
     def test_unknown_ref_is_an_error(self):
-        self.assertEqual(self.pool.acquire("claude", ref="no-such-ref")["status"], "ERROR")
+        self.assertEqual(self.pool.acquire("worker", ref="no-such-ref")["status"], "ERROR")
 
 
 class TestQuarantine(PoolTestBase):
     def test_stale_index_lock_quarantines_without_deleting_it(self):
-        path = self.pool.slot_path("claude_code")
+        path = self.pool.slot_path("worker_code")
         lock = self.pool._index_lock_path(path)
         open(lock, "w").close()
 
-        a = self.pool.acquire("claude")
+        a = self.pool.acquire("worker")
         self.assertEqual(a["slot"], "antigravity", "locked slot must be skipped")
         states = {s["slot"]: s["state"] for s in self.pool.status()}
-        self.assertEqual(states["claude_code"], "QUARANTINED")
+        self.assertEqual(states["worker_code"], "QUARANTINED")
         self.assertTrue(os.path.exists(lock), "index.lock may belong to a live process")
 
         os.remove(lock)
-        self.assertEqual(self.pool.reinstate("claude_code")["status"], "REINSTATED")
+        self.assertEqual(self.pool.reinstate("worker_code")["status"], "REINSTATED")
 
     @unittest.skipUnless(os.name == "nt", "NTFS open-handle semantics are Windows-specific")
     def test_file_held_open_quarantines_slot_on_windows(self):
-        a = self.pool.acquire("claude")
+        a = self.pool.acquire("worker")
         held_path = os.path.join(a["path"], "held_by_ide.txt")
         handle = open(held_path, "w", encoding="utf-8")
         handle.write("an editor keeps this open")
         handle.flush()
         try:
-            res = self.pool.release(a["slot"], "claude", discard=True)
+            res = self.pool.release(a["slot"], "worker", discard=True)
             self.assertEqual(res["status"], "QUARANTINED")
             self.assertEqual(res["triage"]["category"], "INFRA_ENVIRONMENT")
             self.assertFalse(res["triage"]["code_edit_permitted"])

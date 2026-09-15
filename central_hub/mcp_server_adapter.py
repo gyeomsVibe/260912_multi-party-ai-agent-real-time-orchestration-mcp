@@ -3,7 +3,7 @@ central_hub/mcp_server_adapter.py
 Official MCP Stdio Server Adapter - Trinity-ACE Protocol
 
 Capabilities:
-1. Standard JSON-RPC 2.0 Stdio Transport compatible with Claude Code (.mcp.json) and Codex CLI.
+1. Standard JSON-RPC 2.0 Stdio Transport compatible with MCP clients such as Codex CLI.
 2. Memory Pointer Vault: Automatically converts payloads > 1KB into compact `ref://vault/<sha256>`
    pointers (99% token reduction based on 2026 arXiv:2511.22729).
 3. Idempotency Key Ledger: Prevents duplicate execution of effectful tasks during network retries.
@@ -122,7 +122,7 @@ class MCPServerAdapter:
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "sender": {"type": "string", "description": "Agent ID of sender (e.g. codex, claude, antigravity)"},
+                        "sender": {"type": "string", "description": "Agent ID of sender (e.g. codex, antigravity)"},
                         "target": {"type": "string", "description": "Target agent ID or 'ALL'"},
                         "task_name": {"type": "string", "description": "Short task title"},
                         "card_text": {"type": "string", "description": "Task card text (concise, max 3 lines)"},

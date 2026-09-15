@@ -10,7 +10,7 @@ from central_hub.stdio_wrapper import HeadlessAgentRunner
 
 class TestHeadlessAgentRunner(unittest.TestCase):
     def test_mock_response_execution(self):
-        runner = HeadlessAgentRunner("test_claude")
+        runner = HeadlessAgentRunner("test_worker")
         res = runner.execute_task("Run linter", mock_response="LINT_OK: 0 issues found")
         self.assertEqual(res["status"], "SUCCESS")
         self.assertEqual(res["mode"], "MOCK")

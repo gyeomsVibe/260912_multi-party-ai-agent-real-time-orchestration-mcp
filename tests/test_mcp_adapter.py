@@ -62,7 +62,7 @@ class TestMCPServerAdapter(unittest.TestCase):
                 "name": "trinity_send_card",
                 "arguments": {
                     "sender": "codex_brain",
-                    "target": "claude_immune",
+                    "target": "worker_immune",
                     "task_name": "patch_ast_parser",
                     "card_text": "Refactor AST parser for faster visitor traversal."
                 }
@@ -71,16 +71,16 @@ class TestMCPServerAdapter(unittest.TestCase):
         res_send = json.loads(self.adapter.handle_json_rpc(json.dumps(send_req)))
         card_content = json.loads(res_send["result"]["content"][0]["text"])
         self.assertEqual(card_content["status"], "SENT")
-        self.assertEqual(card_content["target"], "claude_immune")
+        self.assertEqual(card_content["target"], "worker_immune")
 
-        # 2. Read inbox for claude_immune
+        # 2. Read inbox for worker_immune
         read_req = {
             "jsonrpc": "2.0",
             "id": 101,
             "method": "tools/call",
             "params": {
                 "name": "trinity_read_inbox",
-                "arguments": {"agent_id": "claude_immune", "limit": 5}
+                "arguments": {"agent_id": "worker_immune", "limit": 5}
             }
         }
         res_read = json.loads(self.adapter.handle_json_rpc(json.dumps(read_req)))
@@ -147,7 +147,7 @@ class TestMCPServerAdapter(unittest.TestCase):
                 "name": "trinity_send_card",
                 "arguments": {
                     "sender": "codex",
-                    "target": "claude",
+                    "target": "worker",
                     "task_name": "idempotent_task",
                     "card_text": "Do not execute twice.",
                     "idempotency_key": idem_key
@@ -172,16 +172,16 @@ class TestMCPServerAdapter(unittest.TestCase):
 
     def test_acquire_and_release_lock(self):
         path = "src/core/compiler.py"
-        # Claude acquires lock
-        res_acq = self.adapter.execute_tool("trinity_acquire_lock", {"resource_path": path, "holder_id": "claude"})
+        # worker acquires lock
+        res_acq = self.adapter.execute_tool("trinity_acquire_lock", {"resource_path": path, "holder_id": "worker"})
         self.assertEqual(res_acq["status"], "ACQUIRED")
 
         # Codex attempts to acquire lock -> locked
         res_acq2 = self.adapter.execute_tool("trinity_acquire_lock", {"resource_path": path, "holder_id": "codex"})
         self.assertEqual(res_acq2["status"], "LOCKED")
 
-        # Release lock by claude
-        res_rel = self.adapter.execute_tool("trinity_release_lock", {"resource_path": path, "holder_id": "claude"})
+        # Release lock by worker
+        res_rel = self.adapter.execute_tool("trinity_release_lock", {"resource_path": path, "holder_id": "worker"})
         self.assertEqual(res_rel["status"], "RELEASED")
 
         # Codex can now acquire lock

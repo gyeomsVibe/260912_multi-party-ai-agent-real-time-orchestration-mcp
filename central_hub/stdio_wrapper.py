@@ -3,7 +3,7 @@ central_hub/stdio_wrapper.py
 Headless Stdio Subprocess Wrapper - Trinity-ACE Protocol
 
 Resolves Pitfall 1:
-Claude Code and Codex CLI lack autonomous background SSE listeners.
+Agent CLIs lack autonomous background SSE listeners.
 This module actively spawns headless subprocesses and controls stdin/stdout streams.
 """
 
@@ -123,6 +123,6 @@ class HeadlessAgentRunner:
 
 
 if __name__ == "__main__":
-    runner = HeadlessAgentRunner("mock_claude")
+    runner = HeadlessAgentRunner("mock_worker")
     res = runner.execute_task("Write unit test", mock_response="PASS: 8 tests passed in 0.4s")
     print("Execution result:", json.dumps(res, indent=2))

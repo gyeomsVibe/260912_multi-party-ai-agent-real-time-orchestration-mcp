@@ -339,7 +339,7 @@ class TestM5InboxDeliveryGuarantee(unittest.TestCase):
             vault_dir=os.path.join(self.tmp.name, "vault"),
         )
         self.adapter._handle_send_card(
-            {"sender": "codex", "target": "claude", "task_name": "t", "card_text": "do it"}
+            {"sender": "codex", "target": "worker", "task_name": "t", "card_text": "do it"}
         )
 
     def tearDown(self):
@@ -347,30 +347,30 @@ class TestM5InboxDeliveryGuarantee(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_unacked_card_is_redelivered_after_lease_expiry(self):
-        first = self.adapter._handle_read_inbox({"agent_id": "claude"})
+        first = self.adapter._handle_read_inbox({"agent_id": "worker"})
         self.assertEqual(first["count"], 1)
         mid = first["cards"][0]["message_id"]
 
         # Immediately re-reading must NOT redeliver (lease still held)
-        self.assertEqual(self.adapter._handle_read_inbox({"agent_id": "claude"})["count"], 0)
+        self.assertEqual(self.adapter._handle_read_inbox({"agent_id": "worker"})["count"], 0)
 
         # Simulate agent crash: expire the lease
         self.adapter.db.execute_write(
             "UPDATE inbox_acks SET leased_until = ? WHERE message_id = ? AND agent_id = ?",
-            (time.time() - 1, mid, "claude"),
+            (time.time() - 1, mid, "worker"),
         )
-        self.assertEqual(self.adapter._handle_read_inbox({"agent_id": "claude"})["count"], 1)
+        self.assertEqual(self.adapter._handle_read_inbox({"agent_id": "worker"})["count"], 1)
 
     def test_acked_card_is_never_redelivered(self):
-        first = self.adapter._handle_read_inbox({"agent_id": "claude"})
+        first = self.adapter._handle_read_inbox({"agent_id": "worker"})
         mid = first["cards"][0]["message_id"]
-        res = self.adapter._handle_ack_card({"agent_id": "claude", "message_id": mid})
+        res = self.adapter._handle_ack_card({"agent_id": "worker", "message_id": mid})
         self.assertEqual(res["status"], "ACKED")
         self.adapter.db.execute_write(
             "UPDATE inbox_acks SET leased_until = ? WHERE message_id = ? AND agent_id = ?",
-            (time.time() - 1, mid, "claude"),
+            (time.time() - 1, mid, "worker"),
         )
-        self.assertEqual(self.adapter._handle_read_inbox({"agent_id": "claude"})["count"], 0)
+        self.assertEqual(self.adapter._handle_read_inbox({"agent_id": "worker"})["count"], 0)
 
     def test_keep_alive_probes_never_reach_agent_inbox(self):
         self.adapter.db.execute_write(
@@ -378,7 +378,7 @@ class TestM5InboxDeliveryGuarantee(unittest.TestCase):
             " VALUES (?,?,?,?,?)",
             ("hub_daemon", "ALL", "CACHE_KEEP_ALIVE_PROBE", "{}", time.time()),
         )
-        cards = self.adapter._handle_read_inbox({"agent_id": "claude"})["cards"]
+        cards = self.adapter._handle_read_inbox({"agent_id": "worker"})["cards"]
         self.assertNotIn("CACHE_KEEP_ALIVE_PROBE", [c["event_type"] for c in cards])
 
 
@@ -405,7 +405,7 @@ class TestM6Idempotency(unittest.TestCase):
              time.time() - MCPServerAdapter.IDEMPOTENCY_RESERVATION_SECONDS - 10),
         )
         res = self.adapter._handle_send_card(
-            {"sender": "codex", "target": "claude", "task_name": "t",
+            {"sender": "codex", "target": "worker", "task_name": "t",
              "card_text": "x", "idempotency_key": "K-crash"}
         )
         self.assertEqual(res["status"], "SENT")
@@ -417,7 +417,7 @@ class TestM6Idempotency(unittest.TestCase):
             ("K-live", json.dumps({"status": "IN_FLIGHT"}), time.time()),
         )
         res = self.adapter._handle_send_card(
-            {"sender": "codex", "target": "claude", "task_name": "t",
+            {"sender": "codex", "target": "worker", "task_name": "t",
              "card_text": "x", "idempotency_key": "K-live"}
         )
         self.assertEqual(res["status"], "IN_FLIGHT")
@@ -430,7 +430,7 @@ class TestM6Idempotency(unittest.TestCase):
             self.adapter._handle_send_card(
                 {
                     "sender": "codex",
-                    "target": "claude",
+                    "target": "worker",
                     "task_name": "t",
                     "card_text": "x",
                     "idempotency_key": "K1",

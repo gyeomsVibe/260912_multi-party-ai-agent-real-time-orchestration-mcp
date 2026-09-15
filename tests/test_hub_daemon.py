@@ -76,7 +76,7 @@ class TestCentralHubDaemon(unittest.TestCase):
         pub_url = f"http://127.0.0.1:{self.port}/api/events"
         payload = {
             "sender": "codex_orchestrator",
-            "target": "claude_verifier",
+            "target": "worker_verifier",
             "event_type": "TASK_DISPATCH",
             "payload": {"task": "verify_ast_schema", "priority": "P0"}
         }
