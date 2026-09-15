@@ -56,16 +56,6 @@ class OllamaWorker:
         self.model = model
         self.timeout_seconds = timeout_seconds
 
-    def check_health(self) -> bool:
-        """Checks if local Ollama daemon is reachable and responding."""
-        url = f"{self.base_url}/api/tags"
-        try:
-            req = urllib.request.Request(url, method="GET")
-            with urllib.request.urlopen(req, timeout=1.0) as resp:
-                return resp.status == 200
-        except Exception:
-            return False
-
     @staticmethod
     def extract_ast_skeleton(source_code: str) -> Dict[str, Any]:
         """

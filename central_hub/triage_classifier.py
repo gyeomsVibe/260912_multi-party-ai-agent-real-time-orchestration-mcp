@@ -65,7 +65,7 @@ class TriageClassifier:
 
     INFRA_PATTERNS: List[Tuple[str, str]] = [
         (r"(?i)address already in use|EADDRINUSE", "Port conflict / EADDRINUSE"),
-        (r"(?i)Win32 Error 32|Sharing Violation|file is locked|WinError 32|index\.lock|NTFS.*locked?", "Windows NTFS file lock / index.lock"),
+        (r"(?i)Win32 Error 32|Sharing Violation|file is locked|WinError 32", "Windows NTFS file lock"),
         (r"(?i)OperationalError: database is locked", "SQLite database lock contention"),
         (r"(?i)connection refused|ECONNREFUSED", "Target service / daemon not running"),
         (r"(?i)no space left on device|ENOSPC", "Disk full"),
